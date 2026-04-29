@@ -42,7 +42,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return { sent: true };
   }
 
-  if (intent === "retry-one") {
+  if (intent === "retry-one" || intent === "resend-one") {
     const id = formData.get("id") as string;
     await sendOrdersToQP(session.shop, [id]);
     return { sent: true };
@@ -117,6 +117,14 @@ export default function Orders() {
   function retryOne(id: string) {
     const fd = new FormData();
     fd.set("intent", "retry-one");
+    fd.set("id", id);
+    fetcher.submit(fd, { method: "post" });
+  }
+
+  function resendOne(id: string) {
+    if (!window.confirm("This will create a new QPExpress shipment with the latest order data. Continue?")) return;
+    const fd = new FormData();
+    fd.set("intent", "resend-one");
     fd.set("id", id);
     fetcher.submit(fd, { method: "post" });
   }
@@ -292,6 +300,11 @@ export default function Orders() {
                             }}
                           >
                             Send
+                          </s-button>
+                        )}
+                        {order.syncStatus === "synced" && (
+                          <s-button variant="secondary" loading={isSubmitting} onClick={() => resendOne(order.id)}>
+                            Resend
                           </s-button>
                         )}
                       </td>
