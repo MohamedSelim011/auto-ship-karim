@@ -36,7 +36,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const formData = await request.formData();
   const intent = formData.get("intent") as string;
 
-  if (intent === "send-selected") {
+  if (intent === "send-selected" || intent === "resend-selected") {
     const ids = (formData.get("ids") as string).split(",").filter(Boolean);
     await sendOrdersToQP(session.shop, ids);
     return { sent: true };
@@ -90,13 +90,21 @@ export default function Orders() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [searchInput, setSearchInput] = useState(initialQ);
 
-  const newOrders = orders.filter((o) => o.syncStatus === "new");
   const failedOrders = orders.filter((o) => o.syncStatus === "failed");
-  const allNewIds = newOrders.map((o) => o.id);
-  const allSelected = allNewIds.length > 0 && allNewIds.every((id) => selected.has(id));
+  const allSelectableIds = orders
+    .filter((o) => o.syncStatus === "new" || o.syncStatus === "failed" || o.syncStatus === "synced")
+    .map((o) => o.id);
+  const allSelected = allSelectableIds.length > 0 && allSelectableIds.every((id) => selected.has(id));
+
+  const selectedUnsent = orders
+    .filter((o) => selected.has(o.id) && (o.syncStatus === "new" || o.syncStatus === "failed"))
+    .map((o) => o.id);
+  const selectedSent = orders
+    .filter((o) => selected.has(o.id) && o.syncStatus === "synced")
+    .map((o) => o.id);
 
   function toggleAll() {
-    setSelected(allSelected ? new Set() : new Set(allNewIds));
+    setSelected(allSelected ? new Set() : new Set(allSelectableIds));
   }
 
   function toggleOne(id: string) {
@@ -109,7 +117,16 @@ export default function Orders() {
   function sendSelected() {
     const fd = new FormData();
     fd.set("intent", "send-selected");
-    fd.set("ids", Array.from(selected).join(","));
+    fd.set("ids", selectedUnsent.join(","));
+    fetcher.submit(fd, { method: "post" });
+    setSelected(new Set());
+  }
+
+  function resendSelected() {
+    if (!window.confirm(`This will create ${selectedSent.length} new QPExpress shipment(s) with the latest order data. Continue?`)) return;
+    const fd = new FormData();
+    fd.set("intent", "resend-selected");
+    fd.set("ids", selectedSent.join(","));
     fetcher.submit(fd, { method: "post" });
     setSelected(new Set());
   }
@@ -134,21 +151,25 @@ export default function Orders() {
     navigate(q ? `/app/orders?q=${encodeURIComponent(q)}` : "/app/orders");
   }
 
-  function handleSearchKey(e: React.KeyboardEvent) {
-    if (e.key === "Enter") handleSearch();
-  }
+  const showBanner = selected.size > 0 || failedOrders.length > 0;
 
   return (
     <s-page heading="QPExpress Orders">
-      {/* Banner */}
-      {(selected.size > 0 || failedOrders.length > 0) && (
+      {showBanner && (
         <s-banner tone={selected.size > 0 ? "info" : "warning"}>
           {selected.size > 0 ? (
             <s-stack direction="inline" gap="base">
               <p>{selected.size} order{selected.size > 1 ? "s" : ""} selected</p>
-              <s-button variant="primary" loading={isSubmitting} onClick={sendSelected}>
-                Send to QPExpress
-              </s-button>
+              {selectedUnsent.length > 0 && (
+                <s-button variant="primary" loading={isSubmitting} onClick={sendSelected}>
+                  Send {selectedUnsent.length > 1 ? `${selectedUnsent.length} Orders` : "Order"} to QPExpress
+                </s-button>
+              )}
+              {selectedSent.length > 0 && (
+                <s-button variant="secondary" loading={isSubmitting} onClick={resendSelected}>
+                  Resend {selectedSent.length > 1 ? `${selectedSent.length} Orders` : "Order"} to QPExpress
+                </s-button>
+              )}
               <s-button variant="secondary" onClick={() => setSelected(new Set())}>
                 Clear
               </s-button>
@@ -193,8 +214,8 @@ export default function Orders() {
                       type="checkbox"
                       checked={allSelected}
                       onChange={toggleAll}
-                      disabled={allNewIds.length === 0}
-                      title="Select all new orders"
+                      disabled={allSelectableIds.length === 0}
+                      title="Select all orders"
                     />
                   </th>
                   <th style={thStyle}>Order</th>
@@ -212,6 +233,7 @@ export default function Orders() {
                 {orders.map((order) => {
                   const isNew = order.syncStatus === "new";
                   const isFailed = order.syncStatus === "failed";
+                  const isSynced = order.syncStatus === "synced";
                   const isChecked = selected.has(order.id);
                   return (
                     <tr
@@ -222,13 +244,11 @@ export default function Orders() {
                       }}
                     >
                       <td style={{ ...tdStyle, width: 40 }}>
-                        {(isNew || isFailed) && (
-                          <input
-                            type="checkbox"
-                            checked={isChecked}
-                            onChange={() => toggleOne(order.id)}
-                          />
-                        )}
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => toggleOne(order.id)}
+                        />
                       </td>
                       <td style={tdStyle}>
                         <s-link
@@ -302,7 +322,7 @@ export default function Orders() {
                             Send
                           </s-button>
                         )}
-                        {order.syncStatus === "synced" && (
+                        {isSynced && (
                           <s-button variant="secondary" loading={isSubmitting} onClick={() => resendOne(order.id)}>
                             Resend
                           </s-button>
