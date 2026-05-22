@@ -2,7 +2,7 @@
 
 client_id = "e30b46ee24e49d836cea6c933e28c065"
 name = "AutoShip"
-application_url = "https://auto-ship-karim.vercel.app"
+application_url = "https://ship-sterling.vercel.app"
 embedded = true
 
 [build]
