@@ -1,6 +1,6 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
-client_id = "cd0dc456a7006fe7947dba96c07b326a"
+client_id = "612b900f24083477ee1563892c6494e9"
 name = "AutoShip"
 application_url = "https://auto-ship-karim.vercel.app"
 embedded = true
