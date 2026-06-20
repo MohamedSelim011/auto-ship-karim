@@ -4,7 +4,7 @@ import { useFetcher, useLoaderData, useNavigate } from "react-router";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import { QP_STATUS_LABEL, QP_STATUS_TONE } from "../lib/status-mapping";
-import { sendOrdersToQP } from "../lib/sync.server";
+import { sendOrdersToQP, importHistoricalOrders } from "../lib/sync.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -48,6 +48,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return { sent: true };
   }
 
+  if (intent === "import-all") {
+    const result = await importHistoricalOrders(session.shop);
+    return { imported: result.imported };
+  }
+
   return null;
 };
 
@@ -84,8 +89,17 @@ function syncStatusLabel(status: string) {
 export default function Orders() {
   const { orders, q: initialQ } = useLoaderData<{ orders: Order[]; q: string }>();
   const fetcher = useFetcher();
+  const importFetcher = useFetcher();
   const navigate = useNavigate();
   const isSubmitting = fetcher.state === "submitting";
+  const isImporting = importFetcher.state === "submitting";
+  const importResult = importFetcher.data as { imported?: number } | undefined;
+
+  function importAll() {
+    const fd = new FormData();
+    fd.set("intent", "import-all");
+    importFetcher.submit(fd, { method: "post" });
+  }
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [searchInput, setSearchInput] = useState(initialQ);
@@ -181,6 +195,16 @@ export default function Orders() {
       )}
 
       <s-section heading={`${orders.length} Orders`}>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "12px", gap: "8px", alignItems: "center" }}>
+          {importResult?.imported !== undefined && (
+            <span style={{ fontSize: "13px", color: "#108043" }}>
+              {importResult.imported} new order{importResult.imported !== 1 ? "s" : ""} imported.
+            </span>
+          )}
+          <s-button variant="secondary" loading={isImporting} onClick={importAll}>
+            Import All Historical Orders
+          </s-button>
+        </div>
         {/* Search bar */}
         <div style={{ display: "flex", alignItems: "flex-end", gap: "8px", marginBottom: "16px" }}
           onKeyUp={(e) => { if (e.key === "Enter") handleSearch(); }}>

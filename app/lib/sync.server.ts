@@ -73,6 +73,77 @@ export async function syncShop(shop: string) {
   }
 }
 
+const ORDERS_QUERY = `#graphql
+  query getOrders($cursor: String) {
+    orders(first: 200, sortKey: CREATED_AT, reverse: true, after: $cursor) {
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+      nodes {
+        id
+        name
+        financialStatus
+        customer { phone }
+        shippingAddress {
+          firstName lastName address1 city phone
+        }
+      }
+    }
+  }
+`;
+
+export async function importHistoricalOrders(shop: string) {
+  const { admin } = await shopify.unauthenticated.admin(shop);
+
+  const config = await prisma.qPExpressConfig.findUnique({ where: { shop } });
+  if (!config) return { imported: 0 };
+
+  let cursor: string | null = null;
+  let imported = 0;
+
+  do {
+    const response = await admin.graphql(ORDERS_QUERY, {
+      variables: { cursor },
+    });
+    const json = await response.json();
+    const { nodes, pageInfo } = json.data.orders;
+
+    for (const order of nodes) {
+      const shopifyOrderId = order.id;
+      const existing = await prisma.orderMapping.findUnique({
+        where: { shop_shopifyOrderId: { shop, shopifyOrderId } },
+      });
+      if (existing) continue;
+
+      const sa = order.shippingAddress;
+      const phone = sa?.phone || order.customer?.phone || "";
+      const customerName = [sa?.firstName, sa?.lastName].filter(Boolean).join(" ");
+      const addressLine = [sa?.address1, sa?.city].filter(Boolean).join(", ");
+      const isPaidOnline = order.financialStatus === "PAID";
+
+      await prisma.orderMapping.create({
+        data: {
+          shop,
+          shopifyOrderId,
+          shopifyOrderNumber: order.name,
+          syncStatus: "new",
+          customerName: customerName || null,
+          customerPhone: phone || null,
+          shippingAddress: addressLine || null,
+          isPaidOnline,
+        },
+      });
+      imported++;
+    }
+
+    cursor = pageInfo.hasNextPage ? pageInfo.endCursor : null;
+  } while (cursor);
+
+  console.log(`[Import] ${imported} historical orders imported for ${shop}`);
+  return { imported };
+}
+
 // Sends specific orders (by OrderMapping IDs) to QPExpress
 export async function sendOrdersToQP(shop: string, mappingIds: string[]) {
   const { admin } = await shopify.unauthenticated.admin(shop);
